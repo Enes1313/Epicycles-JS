@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="UTF-8" />
+	<title>Epicycles</title>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.8.0/p5.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.8.0/addons/p5.dom.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/6.0.2/math.min.js"></script>
+	<script src="https://docs.opencv.org/master/opencv.js" type="text/javascript"></script>
+	<script src="https://docs.opencv.org/master/utils.js" type="text/javascript"></script>
+
+	<script>
+		function initializeMap() {
+			let utils = new Utils('errorMessage');
+			utils.addFileInputHandler('imageInput', 'canvas1');
+		}
+
+		function waitAndStart()
+		{
+			document.getElementById("epicycles").hidden = true;
+			document.getElementById("imageProccessing").hidden = true;
+			var timer = setInterval(function() { 
+				clearInterval(timer);
+				clahe();
+				document.getElementById("epicycles").hidden = false;
+				document.getElementById("imageProccessing").hidden = false;
+			}, 1000);
+		}
+
+		function dft(samples) {
+			const N = samples.length;
+			const arr = Array(N);
+
+			for (let i = 0; i < N; i++) {
+				arr[i] = math.complex(0, 0);
+
+				for (let n = 0; n < N; n++) {
+					const theta = (TWO_PI * i * n) / N;
+					const c = math.complex(cos(theta), -sin(theta));
+					const m = math.multiply(samples[n], c);
+					arr[i] = math.add(arr[i], m);
+				}
+
+				arr[i].re /= N;
+				arr[i].im /= N;
+
+				let amp = sqrt(arr[i].re * arr[i].re + arr[i].im * arr[i].im);
+				let phase = atan2(arr[i].im, arr[i].re);
+
+				arr[i] = {
+					re: arr[i].re,
+					im: arr[i].im,
+					freq: i,
+					amp: amp,
+					phase: phase
+				};
+			}
+			return arr;
+		}
+
+		function clahe() {
+			let clahe1 = parseInt(document.getElementById("clahe1").value);
+			let clahe2 = parseInt(document.getElementById("clahe2").value);
+
+			let src = cv.imread('canvas1');
+			cv.cvtColor(src, src, cv.COLOR_RGB2GRAY, 0);
+
+			if (clahe1 != 0 && clahe2 != 0) { //cv.equalizeHist(src, src);
+				let tileGridSize = new cv.Size(clahe1, clahe1);
+				let clahe = new cv.CLAHE(clahe2, tileGridSize);
+				clahe.apply(src, src);
+			}
+			
+			cv.imshow('canvas2', src);
+			src.delete();
+			medorgaus();
+		}
+
+		function medorgaus() {
+			let src = cv.imread('canvas2');
+			let kernelSize = parseInt(document.getElementById("kernelSize").value) * 2 - 1;
+
+			if (kernelSize != -1) {
+				if (document.getElementById("median").checked == true) {
+					cv.medianBlur(src, src, kernelSize);
+				} else {
+					let ksize = new cv.Size(kernelSize, kernelSize);
+					cv.GaussianBlur(src, src, ksize, 0, 0, cv.BORDER_DEFAULT);
+				}
+			}
+
+			cv.imshow('canvas3', src);
+			src.delete();
+			threshold();
+		}
+
+		function threshold() {
+			let thr1 = parseInt(document.getElementById("thr1").value);
+			let thr2 = parseInt(document.getElementById("thr2").value);
+
+			if (thr1 > thr2) {
+				thr2 = thr1;
+				document.getElementById("thr2").value = thr2.toString();
+			} else {
+				let src = cv.imread('canvas3');
+				if (thr1 != 0) {
+					cv.threshold(src, src, thr1, thr2, cv.THRESH_BINARY);
+				}
+				cv.imshow('canvas4', src);
+				src.delete();
+				laplacian();
+			}
+		}
+
+		function laplacian() {
+			let src = cv.imread('canvas4');
+			let kernelSize = parseInt(document.getElementById("laplacian").value) * 2 - 1;
+
+			if (kernelSize != -1) {
+				cv.cvtColor(src, src, cv.COLOR_RGB2GRAY, 0);
+				cv.Laplacian(src, src, cv.CV_8U, kernelSize, 1, 0, cv.BORDER_DEFAULT); //cv.Canny(src, src, 100, 255, 3, false);
+			}
+			
+			cv.imshow('canvas5', src);
+			src.delete();
+			erodedilate();
+		}
+
+		function erodedilate()
+		{
+			let src = cv.imread('canvas5');
+			let anchor = new cv.Point(-1, -1);
+			let mker = cv.Mat.ones(3, 3, cv.CV_8U);
+			let erode = parseInt(document.getElementById("erode").value);
+			let dilate = parseInt(document.getElementById("dilate").value);
+
+			if (erode != 0) {
+				cv.erode(src, src, mker, anchor, erode, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
+			}
+
+			if (dilate != 0) {
+				cv.dilate(src, src, mker, anchor, dilate, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
+			}
+
+			cv.imshow('canvas6', src);
+			src.delete();
+		}
+		
+		let time = 0;
+		let path = [];
+		let sizeCanvas;
+		let complexFourier;
+		let complex_points;
+		let sortContoursArray;
+		
+		function calcComplexFourierWithPointSkip()
+		{
+			complex_points = [];
+			document.getElementById("DivPointSkip").hidden = false;
+			
+			for (let i = 0; i < sortContoursArray.length; i++) {
+				/*if (contoursArray[i].length < 100)
+					continue;*/
+				for (let j = 0; j < sortContoursArray[i].length; j+=parseInt(document.getElementById("pointSkip").value)) {
+					complex_points.push(math.complex(sortContoursArray[i][j][0] - sizeCanvas[0] / 2, sortContoursArray[i][j][1] - sizeCanvas[1] / 2));
+				}
+			}
+			
+			time = 0;
+			path = [];
+			complexFourier = dft(complex_points);
+			complexFourier.sort((a, b) => b.amp - a.amp);
+		}
+		
+		function createPathAndDrawEpicycles() {
+			let stack = [];
+			let contoursArray = [];
+			let hierarchy = new cv.Mat();
+			let infoContoursRelations = [];
+			let src = cv.imread('canvas6'); //let dst = cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC3);
+			let contours = new cv.MatVector();
+			
+			sortContoursArray = [];
+			sizeCanvas = [src.cols, src.rows];
+			
+			cv.cvtColor(src, src, cv.COLOR_RGB2GRAY, 0);
+			cv.findContours(src, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE); // RETR_CCOMP RETR_EXTERNAL RETR_TREE
+			
+			/* 
+			 * Resimde bulunan contourların x-y değerleri diziye aktarılıyor.
+			 * İlk başta contours.get(i) kullanarak gerekli yerlere erişiyordum. 
+			 * Ama bunun performans kaybı olduğunu gördüm. Ek olarak size büyük olduğunda 
+			 * algoritmanın ortasında erişim problemi yaşanıyordu. Hataya düşüyordu.
+			 */
+			
+			for (let i = 0; i < contours.size(); i++) {
+				let pArr = [];
+				/*
+				 * Laplacian uygulanmadığı zamanda bazen karşıma çıkıyor. contour noktalarından başlangıcı 0-0 oluyor.
+				 */
+				if (contours.get(i).data32S[0] == 0 && contours.get(i).data32S[1] == 0)
+					continue;
+				for (let j = 0; j < contours.get(i).rows; j++) {
+					pArr[j] = [contours.get(i).data32S[j * 2], contours.get(i).data32S[j * 2 + 1]];
+				}
+				contoursArray[i] = pArr;
+			}
+			
+			src.delete(); hierarchy.delete(); contours.delete();
+			
+			/*
+			 * Her contour'a en yakın contour'u buluyor ve diziye ekliyor.
+			 * Bulurken hangi noktaların yakın olduğunu da diziye ekliyor.
+			 */
+			 
+			for (let i = 0; i < contoursArray.length; i++) {
+				let contourSelect;
+				let absVal = Infinity;
+				let px1, px2, py1, py2;
+				let j = 0;
+				
+				for (let pi = 0; pi < contoursArray[i].length && absVal != 0; pi++) {
+					let pix_xi = contoursArray[i][pi][0];
+					let pix_yi = contoursArray[i][pi][1];
+					
+					for (j = 0; j < contoursArray.length && absVal != 0; j++) {
+						if (i == j) {
+							continue;
+						}
+						
+						if (j < i) {
+							if (infoContoursRelations[j].contourSelect == i) {
+								//continue;
+							}
+						}
+						
+						for (let pj = 0; pj < contoursArray[j].length; pj++) {
+							let pix_xj = contoursArray[j][pj][0];
+							let pix_yj = contoursArray[j][pj][1];
+							
+							let len = (pix_xi - pix_xj) ** 2 + (pix_yi - pix_yj) ** 2;
+							
+							if (len < absVal) {
+								px1 = pix_xi;
+								px2 = pix_xj;
+								py1 = pix_yi;
+								py2 = pix_yj;
+								absVal = len;
+								contourSelect = j;
+							}
+							
+							if (absVal < 3) {
+								len = 0;
+								absVal = 0;
+								break;
+							}
+						}
+					}
+				}
+				
+				//console.log(i, contourSelect, contoursArray[i].length);
+				infoContoursRelations.push({px1:px1, px2:px2, py1:py1, py2:py2, contourSelect:contourSelect, inSort:0});
+			}
+			
+			//console.log(infoContoursRelations);
+			
+			/*
+			 * Contourları yukarıda bulduğu ilişkiye göre sıralıyor.
+			 */
+			 
+			for(let i = 0; i < infoContoursRelations.length; i++) {
+				let curr = i;
+				while (infoContoursRelations[curr].inSort == 0) {
+					stack.push(curr);
+					
+					while (stack.length > 0) {
+						let j = stack.pop();
+						
+						if (infoContoursRelations[j].inSort == 0) {
+							for (let k = 0; k < infoContoursRelations.length; k++) {
+								if (infoContoursRelations[k].contourSelect == j && infoContoursRelations[k].inSort == 0) {
+									stack.push(j);
+									stack.push(k);
+								}
+							}
+						}
+						
+						curr = j;
+						infoContoursRelations[j].inSort = 1;
+						sortContoursArray.push(contoursArray[j]);
+					} 
+					
+					curr = infoContoursRelations[curr].contourSelect;
+				}
+			}
+			
+			//console.log(sortContoursArray);
+			
+			/*
+			 * Contourları yukarıda bulduğu en yakın noktalara göre kendi içinde 
+			 * noktaları kaydırma yapıyor.
+			 */
+			
+			//arr1.push.apply(arr1, arr1.splice(0,2));
+			
+			createCanvas(sizeCanvas[0], sizeCanvas[1]);
+			calcComplexFourierWithPointSkip();
+		}
+
+		function setup() {
+			//frameRate(30);
+		}
+
+		function epicycles(x, y, rotation, fourier) {
+			for (let i = 0; i < fourier.length; i++) {
+				let prevx = x;
+				let prevy = y;
+				let freq = fourier[i].freq;
+				let radius = fourier[i].amp;
+				let phase = fourier[i].phase;
+				x += radius * cos(freq * time + phase + rotation);
+				y += radius * sin(freq * time + phase + rotation);
+
+				stroke(0, 255);
+				noFill();
+				ellipse(prevx, prevy, radius * 2);
+
+				line(prevx, prevy, x, y);
+				
+				stroke(255, 0, 0);
+			}0
+			return createVector(x, y);
+		}
+
+		function draw() {
+			if (complexFourier != undefined) {
+				background(255);
+				let v = epicycles(width / 2, height / 2, 0, complexFourier);
+				path.unshift(v);
+
+				beginShape();
+				noFill();
+
+				for (let i = 0; i < path.length; i++) {
+					vertex(path[i].x, path[i].y);
+				}
+
+				endShape();
+
+				time += TWO_PI / complexFourier.length;
+
+				if (time > TWO_PI) {
+					time = 0;
+				}
+			}
+		}
+	</script>
+</head>
+
+<body onload="initializeMap()">
+	<div>
+		<div>
+			<p> 
+				"Gözat" butonundan resim yükleyin. Basit görüntü düzeltme araçlarını kullanın. "epicycles" için en son gürültüsü az, çizgili resim oluşturmaya çalışın. <br />
+				"Epicycles Oluştur" butonuna tıklayarak epicycles oluşturabilirsiniz.<br />
+			</p>
+		</div>
+		<div>
+			<input type="file" id="imageInput" accept="image/*" oninput="waitAndStart()" />
+			<input type="button" id="epicycles" hidden="true" onClick="createPathAndDrawEpicycles()" value="Epicycles Oluştur" />
+		</div>
+	</div>
+	<br />
+	<div>
+		<table id="imageProccessing" hidden="true">
+			<tr>
+				<th>
+					<p>Girdi Resmi</p>
+				</th>
+				<th>
+					<p>Adaptif Hist. Eşitleme (clahe)</p>
+					<p>Threshold for contrast limit</p>
+					<input type="range" min="0" max="20" value="0" id="clahe1" onchange="clahe()" />
+					<p>Size of grid for histogram equalization</p>
+					<input type="range" min="0" max="40" value="0" id="clahe2" onchange="clahe()" />
+				</th>
+				<th>
+					<p>Gürültü Giderme - Sadece 1'i işlenir</p>
+					<input type="radio" id="median" name="kernel" checked />
+					<label for="median">Median Kernel Size</label> <br /> <br />
+					<input type="radio" id="gaussian" name="kernel" />
+					<label for="gaussian">Gaussian Kernel Size</label>
+					<br /> <br />
+					<input type="range" min="0" max="7" value="7" id="kernelSize" onchange="medorgaus()" />
+				</th>
+			</tr>
+			<tr>
+				<td>
+					<canvas id="canvas1" style='width:300px;height:300px'></canvas>
+				</td>
+				<td>
+					<canvas id="canvas2" style='width:300px;height:300px'></canvas>
+				</td>
+				<td>
+					<canvas id="canvas3" style='width:300px;height:300px'></canvas>
+				</td>
+			</tr>
+			<tr>
+				<th>
+					<p>Eşik değer</p>
+					<p>Threshold Min</p>
+					<input type="range" min="0" max="255" value="238" id="thr1" onchange="threshold()" />
+					<p>Threshold Max</p>
+					<input type="range" min="0" max="255" value="255" id="thr2" onchange="threshold()" />
+				</th>
+				<th>
+					<p>Kenar Bulma</p>
+					<p>Laplacian</p>
+					<input type="range" min="0" max="7" value="1" id="laplacian" onchange="laplacian()" />
+				</th>
+				<th>
+					<p>Yayma ve Genişletme</p>
+					<p>Erode</p>
+					<input type="range" min="0" max="10" value="0" id="erode" onchange="erodedilate()" />
+					<p>Dilate</p>
+					<input type="range" min="0" max="10" value="1" id="dilate" onchange="erodedilate()" />
+				</th>
+			</tr>
+			<tr>
+				<td>
+					<canvas id="canvas4" style='width:300px;height:300px'></canvas>
+				</td>
+				<td>
+					<canvas id="canvas5" style='width:300px;height:300px'></canvas>
+				</td>
+				<td>
+					<canvas id="canvas6" style='width:300px;height:300px'></canvas>
+				</td>
+			</tr>
+		</table>
+	</div>
+	<div id="DivPointSkip" hidden="true">
+		<p>Nokta Atlama</p>
+		<input type="range" min="1" max="20" value="5" id="pointSkip" onchange="calcComplexFourierWithPointSkip()"/>
+	</div>
+</body>
+
+</html>

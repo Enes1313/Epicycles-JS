@@ -177,6 +177,7 @@
 			
 			time = 0;
 			path = [];
+			complexFourier = undefined;
 			complexFourier = dft(complex_points);
 			complexFourier.sort((a, b) => b.amp - a.amp);
 		}

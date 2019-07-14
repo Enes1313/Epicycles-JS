@@ -153,6 +153,7 @@
 		let complexFourier;
 		let complex_points;
 		let sortContoursArray;
+		let infoContoursRelations;
 		
 		function calcComplexFourierWithPointSkip()
 		{
@@ -160,10 +161,17 @@
 			document.getElementById("DivPointSkip").hidden = false;
 			
 			for (let i = 0; i < sortContoursArray.length; i++) {
+				/*
+				 * Küçük değerli contourları saymaya biliriz.
+				 */
 				/*if (contoursArray[i].length < 100)
 					continue;*/
-				for (let j = 0; j < sortContoursArray[i].length; j+=parseInt(document.getElementById("pointSkip").value)) {
-					complex_points.push(math.complex(sortContoursArray[i][j][0] - sizeCanvas[0] / 2, sortContoursArray[i][j][1] - sizeCanvas[1] / 2));
+				
+				/*
+				 * sortContoursArray infoContoursRelations kullanılarak efektif geçişler yapılır.
+				 */
+				for (let j = 0; j < sortContoursArray[i].contour.length; j+=parseInt(document.getElementById("pointSkip").value)) {
+					complex_points.push(math.complex(sortContoursArray[i].contour[j][0] - sizeCanvas[0] / 2, sortContoursArray[i].contour[j][1] - sizeCanvas[1] / 2));
 				}
 			}
 			
@@ -177,11 +185,11 @@
 			let stack = [];
 			let contoursArray = [];
 			let hierarchy = new cv.Mat();
-			let infoContoursRelations = [];
 			let src = cv.imread('canvas6'); //let dst = cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC3);
 			let contours = new cv.MatVector();
 			
 			sortContoursArray = [];
+			infoContoursRelations = [];
 			sizeCanvas = [src.cols, src.rows];
 			
 			cv.cvtColor(src, src, cv.COLOR_RGB2GRAY, 0);
@@ -198,6 +206,8 @@
 				let pArr = [];
 				/*
 				 * Laplacian uygulanmadığı zamanda bazen karşıma çıkıyor. contour noktalarından başlangıcı 0-0 oluyor.
+				 * Başlangıç piksel x-y si 0-0 olan contouru es geçiyorum. Genelde sonuncu contour oluyor. Eğer arada olursa bir ara
+				 * contoursArray[i] = pArr; satırında i değeri kullanılmamalı.
 				 */
 				if (contours.get(i).data32S[0] == 0 && contours.get(i).data32S[1] == 0)
 					continue;
@@ -217,7 +227,7 @@
 			for (let i = 0; i < contoursArray.length; i++) {
 				let contourSelect;
 				let absVal = Infinity;
-				let px1, px2, py1, py2;
+				let p1, p2;
 				let j = 0;
 				
 				for (let pi = 0; pi < contoursArray[i].length && absVal != 0; pi++) {
@@ -225,10 +235,16 @@
 					let pix_yi = contoursArray[i][pi][1];
 					
 					for (j = 0; j < contoursArray.length && absVal != 0; j++) {
+						/*
+						 * i. contour'a en yakın olanı bulmak için kendisine bakmamalı.
+						 */
 						if (i == j) {
 							continue;
 						}
-						
+						/*
+						 * j. contour eğer i. contour tarafından en yakın seçilmişse, kendisi aynısını yakın seçmesin
+						 * Seçmesi veya seçmemesinin performansa etkisi bakılmalı.
+						 */
 						if (j < i) {
 							if (infoContoursRelations[j].contourSelect == i) {
 								//continue;
@@ -242,10 +258,9 @@
 							let len = (pix_xi - pix_xj) ** 2 + (pix_yi - pix_yj) ** 2;
 							
 							if (len < absVal) {
-								px1 = pix_xi;
-								px2 = pix_xj;
-								py1 = pix_yi;
-								py2 = pix_yj;
+								p1 = pi;
+								p2 = pj;
+								
 								absVal = len;
 								contourSelect = j;
 							}
@@ -260,7 +275,7 @@
 				}
 				
 				//console.log(i, contourSelect, contoursArray[i].length);
-				infoContoursRelations.push({px1:px1, px2:px2, py1:py1, py2:py2, contourSelect:contourSelect, inSort:0});
+				infoContoursRelations.push({p1:p1, p2:p2, contourSelect:contourSelect, inSort:0});
 			}
 			
 			//console.log(infoContoursRelations);
@@ -280,7 +295,7 @@
 						if (infoContoursRelations[j].inSort == 0) {
 							for (let k = 0; k < infoContoursRelations.length; k++) {
 								if (infoContoursRelations[k].contourSelect == j && infoContoursRelations[k].inSort == 0) {
-									stack.push(j);
+									stack.push(j); // değişiklik
 									stack.push(k);
 								}
 							}
@@ -288,7 +303,8 @@
 						
 						curr = j;
 						infoContoursRelations[j].inSort = 1;
-						sortContoursArray.push(contoursArray[j]);
+						// hangi eleman olduğu bilgisi atılacak.
+						sortContoursArray.push({j:j, contour:contoursArray[j]});
 					} 
 					
 					curr = infoContoursRelations[curr].contourSelect;
@@ -298,11 +314,9 @@
 			//console.log(sortContoursArray);
 			
 			/*
-			 * Contourları yukarıda bulduğu en yakın noktalara göre kendi içinde 
-			 * noktaları kaydırma yapıyor.
+			 * Kullanmayı düşündüm ama kullanmayacağım. Yorum olarak kalsın :D
+			 * arr1.push.apply(arr1, arr1.splice(0,2));
 			 */
-			
-			//arr1.push.apply(arr1, arr1.splice(0,2));
 			
 			createCanvas(sizeCanvas[0], sizeCanvas[1]);
 			calcComplexFourierWithPointSkip();
